@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Tokens / credentials (should never be committed; kept in $HOME by default)
+*tokens*.json
+
+# Editor / OS
+.claude/settings.local.json
+.DS_Store
