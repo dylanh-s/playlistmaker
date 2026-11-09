@@ -1,6 +1,6 @@
 # playlistmaker
 
-Build an **Apple Music** playlist from an **NTS** radio show or a **Spotify** playlist — without a paid Apple Developer account and without the Spotify API.
+Build an **Apple Music** playlist from an **NTS** radio show, a **Spotify** playlist, or a **YouTube** playlist — without a paid Apple Developer account and without the Spotify API.
 
 It scrapes the tracklist from the source, then searches the Apple Music catalog and adds each match to a playlist in your library.
 
@@ -35,6 +35,9 @@ python3 playlistmaker.py --mode spotify --path "https://open.spotify.com/playlis
 # From an NTS show
 python3 playlistmaker.py --mode nts --path "https://www.nts.live/shows/<...>"
 
+# From a YouTube playlist (extracted via yt-dlp; titles are parsed "Artist - Title")
+python3 playlistmaker.py --mode youtube --path "https://www.youtube.com/playlist?list=<id>"
+
 # Just test a catalog search
 python3 playlistmaker.py --search "aphex twin windowlicker"
 
@@ -55,6 +58,7 @@ Run with no flags for interactive prompts.
 
 - macOS + Firefox only (that's where the token is read from).
 - Some tracks won't match: songs not available in your storefront, or source tracklists that list **pinyin/romanised titles** (Apple indexes those by their original characters, so the search can't find them). These are reported, not silently dropped.
+- **YouTube** mode needs `yt-dlp` (in `requirements.txt`) and relies on titles following the "Artist - Title" convention; tracks whose videos don't (or that only exist as underground / vinyl-only releases) won't match.
 
 ## Security
 

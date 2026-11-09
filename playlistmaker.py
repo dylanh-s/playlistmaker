@@ -128,6 +128,73 @@ def get_html_spotify(url):
     return get_html(spotify_embed_url(url))
 
 
+# --- YouTube -----------------------------------------------------------------
+# Extraction is delegated to yt-dlp (a required dependency): it tracks YouTube's
+# constant markup changes for us and returns the whole playlist. Video titles
+# follow the near-universal "Artist - Title" convention (the channel is just the
+# uploader, not the artist), so we split on the first " - " and strip
+# YouTube-isms ([LABEL001], "(Official Video)", …).
+
+YOUTUBE_ID_RE = re.compile(r'[?&]list=([A-Za-z0-9_-]+)')
+_YT_TRAILING_BRACKET_RE = re.compile(r"\s*\[[^\]]*\]\s*$")
+_YT_MEDIA_PAREN_RE = re.compile(
+    r"\s*[\(\[][^)\]]*\b(?:official|lyric|lyrics|visuali[sz]er|audio|video|m/?v|hd|4k|"
+    r"out now|free\s*(?:dl|download)|premiere)\b[^)\]]*[\)\]]",
+    re.IGNORECASE,
+)
+
+
+def youtube_playlist_url(url):
+    m = YOUTUBE_ID_RE.search(url)
+    if not m:
+        raise ValueError(f"Could not find a playlist id (list=…) in {url!r}")
+    return f"https://www.youtube.com/playlist?list={m.group(1)}"
+
+
+def _yt_clean_title(raw):
+    raw = _YT_MEDIA_PAREN_RE.sub("", raw)
+    raw = _YT_TRAILING_BRACKET_RE.sub("", raw)
+    return " ".join(raw.split()).strip()
+
+
+def _yt_title_to_track(text):
+    """Turn a video title ("Artist - Title [LABEL]") into a {title, artist} row."""
+    text = _yt_clean_title(text)
+    if not text:
+        return None
+    if " - " in text:
+        artist, title = text.split(" - ", 1)
+    else:
+        artist, title = "", text
+    title, artist = title.strip(), artist.strip()
+    return {"title": title, "artist": artist} if title else None
+
+
+def parse_youtube(url) -> tuple[str, list[dict]]:
+    """Extract the playlist with yt-dlp (flat, no downloads) and map each video
+    title to a {title, artist} row."""
+    import yt_dlp
+
+    opts = {"quiet": True, "no_warnings": True, "extract_flat": True,
+            "skip_download": True, "ignoreerrors": True}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    if not info:
+        raise ValueError("yt-dlp returned no playlist data")
+
+    name = clean(info.get("title") or "YouTube Playlist")
+    tracks = []
+    for e in (info.get("entries") or []):
+        if not e:
+            continue
+        t = _yt_title_to_track(e.get("title", ""))
+        if t:
+            tracks.append(t)
+    if not tracks:
+        raise ValueError("yt-dlp found the playlist but no usable entries")
+    return name, tracks
+
+
 # =============================================================================
 # Search-query cleanup
 # =============================================================================
@@ -481,6 +548,15 @@ def handle_spotify(url=None):
     raise SystemExit("Error: failed to fetch Spotify url")
 
 
+def handle_youtube(url=None):
+    url = url or input("Paste a YouTube playlist URL: ").strip()
+    try:
+        import yt_dlp  # noqa: F401
+    except ImportError:
+        raise SystemExit("Error: YouTube mode requires yt-dlp — install it with: pip install yt-dlp")
+    return parse_youtube(youtube_playlist_url(url))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build an Apple Music playlist from an NTS or Spotify tracklist.",
@@ -488,13 +564,14 @@ def main():
             "examples:\n"
             "  python3 playlistmaker.py --mode spotify --path https://open.spotify.com/playlist/<id>\n"
             "  python3 playlistmaker.py --mode nts --path https://www.nts.live/shows/<...>\n"
+            "  python3 playlistmaker.py --mode youtube --path https://www.youtube.com/playlist?list=<id>\n"
             "  python3 playlistmaker.py --search \"aphex twin windowlicker\"\n"
             "  python3 playlistmaker.py --refresh-tokens\n\n"
             "Requires: Python 3, `requests`, and being signed into Apple Music in Firefox."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--mode", choices=["nts", "spotify"], help="Source of the tracklist")
+    parser.add_argument("--mode", choices=["nts", "spotify", "youtube"], help="Source of the tracklist")
     parser.add_argument("--path", help="URL for the chosen mode")
     parser.add_argument("--refresh-tokens", action="store_true", help="Re-scrape/re-read the Apple Music tokens and exit")
     parser.add_argument("--search", metavar="TERM", help="Diagnostic: search the catalog for TERM and print the top matches, then exit")
@@ -514,12 +591,14 @@ def main():
 
     mode = args.mode
     if not mode:
-        mode = input("Enter mode ('nts' or 'spotify'): ").strip().lower()
-        while mode not in ("nts", "spotify"):
-            mode = input("Invalid. Enter 'nts' or 'spotify': ").strip().lower()
+        mode = input("Enter mode ('nts', 'spotify' or 'youtube'): ").strip().lower()
+        while mode not in ("nts", "spotify", "youtube"):
+            mode = input("Invalid. Enter 'nts', 'spotify' or 'youtube': ").strip().lower()
 
     if mode == "nts":
         playlist_name, tracks = handle_nts(url=args.path)
+    elif mode == "youtube":
+        playlist_name, tracks = handle_youtube(url=args.path)
     else:
         playlist_name, tracks = handle_spotify(url=args.path)
 
